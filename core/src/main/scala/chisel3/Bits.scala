@@ -240,6 +240,44 @@ sealed abstract class Bits(private[chisel3] val width: Width) extends Element wi
   def do_>> (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): this.type =
     binop(sourceInfo, cloneTypeWidth(this.width), DynamicShiftRightOp, that)
 
+  // what's the behavior? Bits & UInt -> Bits
+  /** Bitwise and operator
+    *
+    * @param that a hardware $coll
+    * @return the bitwise and of  this $coll and `that`
+    * $maxWidth
+    * @group Bitwise
+    */
+  final def & (that: Bits): Bits = macro SourceInfoTransform.thatArg
+  /** @group SourceInfoTransformMacro */
+  def do_& (that: Bits)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bits =
+    binop(sourceInfo, cloneTypeWidth(this.width max that.width), BitAndOp, that)
+
+  /** Bitwise or operator
+    *
+    * @param that a hardware $coll
+    * @return the bitwise or of this $coll and `that`
+    * $maxWidth
+    * @group Bitwise
+    */
+  final def | (that: Bits): Bits = macro SourceInfoTransform.thatArg
+  /** @group SourceInfoTransformMacro */
+  def do_| (that: Bits)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bits =
+    binop(sourceInfo, cloneTypeWidth(this.width max that.width), BitOrOp, that)
+
+  /** Bitwise exclusive or (xor) operator
+    *
+    * @param that a hardware $coll
+    * @return the bitwise xor of this $coll and `that`
+    * $maxWidth
+    * @group Bitwise
+    */
+  final def ^ (that: Bits): Bits = macro SourceInfoTransform.thatArg
+  /** @group SourceInfoTransformMacro */
+  def do_^ (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bits =
+    binop(sourceInfo, cloneTypeWidth(this.width max that.width), BitXorOp, that)
+
+
   /** Or reduction operator
     *
     * @return a hardware [[Bool]] resulting from every bit of this $coll or'd together
@@ -482,45 +520,8 @@ sealed class UInt private[chisel3] (width: Width) extends Bits(width) with Num[U
   def do_-% (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt =
     (this subtractAsSInt that).tail(1).asUInt()
 
-  /** Bitwise and operator
-    *
-    * @param that a hardware $coll
-    * @return the bitwise and of  this $coll and `that`
-    * $maxWidth
-    * @group Bitwise
-    */
-  final def & (that: UInt): UInt = macro SourceInfoTransform.thatArg
-
-  /** Bitwise or operator
-    *
-    * @param that a hardware $coll
-    * @return the bitwise or of this $coll and `that`
-    * $maxWidth
-    * @group Bitwise
-    */
-  final def | (that: UInt): UInt = macro SourceInfoTransform.thatArg
-
-  /** Bitwise exclusive or (xor) operator
-    *
-    * @param that a hardware $coll
-    * @return the bitwise xor of this $coll and `that`
-    * $maxWidth
-    * @group Bitwise
-    */
-  final def ^ (that: UInt): UInt = macro SourceInfoTransform.thatArg
-
   //  override def abs: UInt = macro SourceInfoTransform.noArg
   def do_abs(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt = this
-
-  /** @group SourceInfoTransformMacro */
-  def do_& (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt =
-    binop(sourceInfo, UInt(this.width max that.width), BitAndOp, that)
-  /** @group SourceInfoTransformMacro */
-  def do_| (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt =
-    binop(sourceInfo, UInt(this.width max that.width), BitOrOp, that)
-  /** @group SourceInfoTransformMacro */
-  def do_^ (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt =
-    binop(sourceInfo, UInt(this.width max that.width), BitXorOp, that)
 
   /** @group SourceInfoTransformMacro */
   def do_unary_~ (implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt =
