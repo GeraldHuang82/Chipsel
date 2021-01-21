@@ -55,7 +55,18 @@ sealed abstract class Bits(private[chisel3] val width: Width) extends Element wi
     * @return This $coll with the `n` most significant bits removed.
     * @group Bitwise
     */
-  final def tail(n: Int): UInt = macro SourceInfoTransform.nArg
+  final def tail(n: Int): this.type = macro SourceInfoTransform.nArg
+
+  /** @group SourceInfoTransformMacro */
+  def do_tail(n: Int)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): this.type = {
+    val w = width match {
+      case KnownWidth(x) =>
+        require(x >= n, s"Can't tail($n) for width $x < $n")
+        Width(x - n)
+      case UnknownWidth() => Width()
+    }
+    binop(sourceInfo, cloneTypeWidth(w), TailOp, n)
+  }
 
   /** Head operator
     *
@@ -63,26 +74,15 @@ sealed abstract class Bits(private[chisel3] val width: Width) extends Element wi
     * @return The `n` most significant bits of this $coll
     * @group Bitwise
     */
-  final def head(n: Int): UInt = macro SourceInfoTransform.nArg
+  final def head(n: Int): this.type = macro SourceInfoTransform.nArg
 
   /** @group SourceInfoTransformMacro */
-  def do_tail(n: Int)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt = {
-    val w = width match {
-      case KnownWidth(x) =>
-        require(x >= n, s"Can't tail($n) for width $x < $n")
-        Width(x - n)
-      case UnknownWidth() => Width()
-    }
-    binop(sourceInfo, UInt(width = w), TailOp, n)
-  }
-
-  /** @group SourceInfoTransformMacro */
-  def do_head(n: Int)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt = {
+  def do_head(n: Int)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): this.type = {
     width match {
       case KnownWidth(x) => require(x >= n, s"Can't head($n) for width $x < $n")
       case UnknownWidth() =>
     }
-    binop(sourceInfo, UInt(Width(n)), HeadOp, n)
+    binop(sourceInfo, cloneTypeWidth(width), HeadOp, n)
   }
 
   /** Returns the specified bit on this $coll as a [[Bool]], statically addressed.
@@ -142,64 +142,26 @@ sealed abstract class Bits(private[chisel3] val width: Width) extends Element wi
     * @param y the low bit
     * @return a hardware component contain the requested bits
     */
-  final def apply(x: Int, y: Int): UInt = macro SourceInfoTransform.xyArg
+  final def apply(x: BigInt, y: BigInt): this.type = macro SourceInfoTransform.xyArg
 
   /** @group SourceInfoTransformMacro */
-  final def do_apply(x: Int, y: Int)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt = {
+  final def do_apply(x: BigInt, y: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): this.type = {
     if (x < y || y < 0) {
       Builder.error(s"Invalid bit range ($x,$y)")
     }
-    val w = x - y + 1
+    val intX = castToInt(x, "High index")
+    val intY = castToInt(y, "Low index")
+    val w = intX - intY + 1
     // This preserves old behavior while a more more consistent API is under debate
     // See https://github.com/freechipsproject/chisel3/issues/867
     litOption.map { value =>
-      ((value >> y) & ((BigInt(1) << w) - 1)).asUInt(w.W)
+      ((value >> intY) & ((BigInt(1) << w) - 1)).asUInt(w.W)
     }.getOrElse {
       requireIsHardware(this, "bits to be sliced")
-      pushOp(DefPrim(sourceInfo, UInt(Width(w)), BitsExtractOp, this.ref, ILit(x), ILit(y)))
+      pushOp(DefPrim(sourceInfo, cloneTypeWidth(Width(w)), BitsExtractOp, this.ref, ILit(x), ILit(y)))
     }
   }
-
-  // REVIEW TODO: again, is this necessary? Or just have this and use implicits?
-  /** Returns a subset of bits on this $coll from `hi` to `lo` (inclusive), statically addressed.
-    *
-    * @example
-    * {{{
-    * myBits = 0x5 = 0b101
-    * myBits(1,0) => 0b01  // extracts the two least significant bits
-    * }}}
-    * @param x the high bit
-    * @param y the low bit
-    * @return a hardware component contain the requested bits
-    */
-  final def apply(x: BigInt, y: BigInt): UInt = macro SourceInfoTransform.xyArg
-
-  /** @group SourceInfoTransformMacro */
-  final def do_apply(x: BigInt, y: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt =
-    apply(castToInt(x, "High index"), castToInt(y, "Low index"))
-
-  private[chisel3] def unop[T <: Data](sourceInfo: SourceInfo, dest: T, op: PrimOp): T = {
-    requireIsHardware(this, "bits operated on")
-    pushOp(DefPrim(sourceInfo, dest, op, this.ref))
-  }
-  private[chisel3] def binop[T <: Data](sourceInfo: SourceInfo, dest: T, op: PrimOp, other: BigInt): T = {
-    requireIsHardware(this, "bits operated on")
-    pushOp(DefPrim(sourceInfo, dest, op, this.ref, ILit(other)))
-  }
-  private[chisel3] def binop[T <: Data](sourceInfo: SourceInfo, dest: T, op: PrimOp, other: Bits): T = {
-    requireIsHardware(this, "bits operated on")
-    requireIsHardware(other, "bits operated on")
-    pushOp(DefPrim(sourceInfo, dest, op, this.ref, other.ref))
-  }
-  private[chisel3] def compop(sourceInfo: SourceInfo, op: PrimOp, other: Bits): Bool = {
-    requireIsHardware(this, "bits operated on")
-    requireIsHardware(other, "bits operated on")
-    pushOp(DefPrim(sourceInfo, Bool(), op, this.ref, other.ref))
-  }
-  private[chisel3] def redop(sourceInfo: SourceInfo, op: PrimOp): Bool = {
-    requireIsHardware(this, "bits operated on")
-    pushOp(DefPrim(sourceInfo, Bool(), op, this.ref))
-  }
+    .asInstanceOf[this.type] // Make Scala happy...
 
   /** Pad operator
     *
@@ -222,10 +184,10 @@ sealed abstract class Bits(private[chisel3] val width: Width) extends Element wi
     * @return this $coll with each bit inverted
     * @group Bitwise
     */
-  final def unary_~ (): Bits = macro SourceInfoWhiteboxTransform.noArg
+  final def unary_~ (): this.type = macro SourceInfoWhiteboxTransform.noArg
 
   /** @group SourceInfoTransformMacro */
-  def do_unary_~ (implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bits
+  def do_unary_~ (implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): this.type
 
   /** Static left shift operator
     *
@@ -234,12 +196,11 @@ sealed abstract class Bits(private[chisel3] val width: Width) extends Element wi
     * $sumWidthInt
     * @group Bitwise
     */
-  // REVIEW TODO: redundant
-  // REVIEW TODO: should these return this.type or Bits?
-  final def << (that: BigInt): Bits = macro SourceInfoWhiteboxTransform.thatArg
+  final def << (that: BigInt): this.type = macro SourceInfoWhiteboxTransform.thatArg
 
   /** @group SourceInfoTransformMacro */
-  def do_<< (that: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bits
+  def do_<< (that: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): this.type =
+    binop(sourceInfo, cloneTypeWidth(this.width + castToInt(that, "Shift amount")), ShiftLeftOp, validateShiftAmount(castToInt(that, "Shift amount")))
 
   /** Dynamic left shift operator
     *
@@ -248,10 +209,11 @@ sealed abstract class Bits(private[chisel3] val width: Width) extends Element wi
     * @note The width of the returned $coll is `width of this + pow(2, width of that) - 1`.
     * @group Bitwise
     */
-  final def << (that: UInt): Bits = macro SourceInfoWhiteboxTransform.thatArg
+  final def << (that: UInt): this.type = macro SourceInfoWhiteboxTransform.thatArg
 
   /** @group SourceInfoTransformMacro */
-  def do_<< (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bits
+  def do_<< (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): this.type =
+    binop(sourceInfo, cloneTypeWidth(this.width.dynamicShiftLeft(that.width)), DynamicShiftLeftOp, that)
 
   /** Static right shift operator
     *
@@ -260,11 +222,10 @@ sealed abstract class Bits(private[chisel3] val width: Width) extends Element wi
     * $unchangedWidth
     * @group Bitwise
     */
-  // REVIEW TODO: redundant
-  final def >> (that: BigInt): Bits = macro SourceInfoWhiteboxTransform.thatArg
+  final def >> (that: BigInt): this.type = macro SourceInfoWhiteboxTransform.thatArg
 
-  /** @group SourceInfoTransformMacro */
-  def do_>> (that: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bits
+  def do_>> (that: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): this.type =
+    binop(sourceInfo, cloneTypeWidth(this.width.shiftRight(castToInt(that, "Shift amount"))), ShiftRightOp, validateShiftAmount(castToInt(that, "Shift amount")))
 
   /** Dynamic right shift operator
     *
@@ -274,10 +235,10 @@ sealed abstract class Bits(private[chisel3] val width: Width) extends Element wi
     * $unchangedWidth
     * @group Bitwise
     */
-  final def >> (that: UInt): Bits = macro SourceInfoWhiteboxTransform.thatArg
+  final def >> (that: UInt): this.type = macro SourceInfoWhiteboxTransform.thatArg
 
-  /** @group SourceInfoTransformMacro */
-  def do_>> (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bits
+  def do_>> (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): this.type =
+    binop(sourceInfo, cloneTypeWidth(this.width), DynamicShiftRightOp, that)
 
   /** Returns the contents of this wire as a [[scala.collection.Seq]] of [[Bool]]. */
   final def asBools(): Seq[Bool] = macro SourceInfoTransform.noArg
@@ -341,6 +302,29 @@ sealed abstract class Bits(private[chisel3] val width: Width) extends Element wi
   def do_## (that: Bits)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt = {
     val w = this.width + that.width
     pushOp(DefPrim(sourceInfo, UInt(w), ConcatOp, this.ref, that.ref))
+  }
+
+  private[chisel3] def unop[T <: Data](sourceInfo: SourceInfo, dest: T, op: PrimOp): T = {
+    requireIsHardware(this, "bits operated on")
+    pushOp(DefPrim(sourceInfo, dest, op, this.ref))
+  }
+  private[chisel3] def binop[T <: Data](sourceInfo: SourceInfo, dest: T, op: PrimOp, other: BigInt): T = {
+    requireIsHardware(this, "bits operated on")
+    pushOp(DefPrim(sourceInfo, dest, op, this.ref, ILit(other)))
+  }
+  private[chisel3] def binop[T <: Data](sourceInfo: SourceInfo, dest: T, op: PrimOp, other: Bits): T = {
+    requireIsHardware(this, "bits operated on")
+    requireIsHardware(other, "bits operated on")
+    pushOp(DefPrim(sourceInfo, dest, op, this.ref, other.ref))
+  }
+  private[chisel3] def compop(sourceInfo: SourceInfo, op: PrimOp, other: Bits): Bool = {
+    requireIsHardware(this, "bits operated on")
+    requireIsHardware(other, "bits operated on")
+    pushOp(DefPrim(sourceInfo, Bool(), op, this.ref, other.ref))
+  }
+  private[chisel3] def redop(sourceInfo: SourceInfo, op: PrimOp): Bool = {
+    requireIsHardware(this, "bits operated on")
+    pushOp(DefPrim(sourceInfo, Bool(), op, this.ref))
   }
 
   /** Default print as [[Decimal]] */
@@ -466,7 +450,7 @@ sealed class UInt private[chisel3] (width: Width) extends Bits(width) with Num[U
     (this subtractAsSInt that).asUInt
   /** @group SourceInfoTransformMacro */
   def do_-% (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt =
-    (this subtractAsSInt that).tail(1)
+    (this subtractAsSInt that).tail(1).asUInt()
 
   /** Bitwise and operator
     *
@@ -576,15 +560,6 @@ sealed class UInt private[chisel3] (width: Width) extends Bits(width) with Num[U
 
   /** @group SourceInfoTransformMacro */
   def do_unary_! (implicit sourceInfo: SourceInfo, compileOptions: CompileOptions) : Bool = this === 0.U(1.W)
-
-  override def do_<< (that: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt =
-    binop(sourceInfo, UInt(this.width + castToInt(that, "Shift amount")), ShiftLeftOp, validateShiftAmount(castToInt(that, "Shift amount")))
-  override def do_<< (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt =
-    binop(sourceInfo, UInt(this.width.dynamicShiftLeft(that.width)), DynamicShiftLeftOp, that)
-  override def do_>> (that: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt =
-    binop(sourceInfo, UInt(this.width.shiftRight(castToInt(that, "Shift amount"))), ShiftRightOp, validateShiftAmount(castToInt(that, "Shift amount")))
-  override def do_>> (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt =
-    binop(sourceInfo, UInt(this.width), DynamicShiftRightOp, that)
 
   /** Conditionally set or clear a bit
     *
@@ -850,15 +825,6 @@ sealed class SInt private[chisel3] (width: Width) extends Bits(width) with Num[S
   def do_abs(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): SInt = {
     Mux(this < 0.S, (-this), this)
   }
-
-  override def do_<< (that: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): SInt =
-    binop(sourceInfo, SInt(this.width + castToInt(that, "Shift amount")), ShiftLeftOp, validateShiftAmount(castToInt(that, "Shift amount")))
-  override def do_<< (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): SInt =
-    binop(sourceInfo, SInt(this.width.dynamicShiftLeft(that.width)), DynamicShiftLeftOp, that)
-  override def do_>> (that: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): SInt =
-    binop(sourceInfo, SInt(this.width.shiftRight(castToInt(that, "Shift amount"))), ShiftRightOp, validateShiftAmount(castToInt(that, "Shift amount")))
-  override def do_>> (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): SInt =
-    binop(sourceInfo, SInt(this.width), DynamicShiftRightOp, that)
 
   override def do_asUInt(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt = pushOp(DefPrim(sourceInfo, UInt(this.width), AsUIntOp, ref))
   override def do_asSInt(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): SInt = this
@@ -1409,15 +1375,6 @@ package experimental {
       Mux(this < 0.F(0.BP), 0.F(0.BP) - this, this)
     }
 
-    override def do_<< (that: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): FixedPoint =
-      binop(sourceInfo, FixedPoint(this.width + castToInt(that, "Shift amount"), this.binaryPoint), ShiftLeftOp, castToInt(that, "Shift amount")).asFixedPoint(this.binaryPoint)
-    override def do_<< (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): FixedPoint =
-      binop(sourceInfo, FixedPoint(this.width.dynamicShiftLeft(that.width), this.binaryPoint), DynamicShiftLeftOp, that)
-    override def do_>> (that: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): FixedPoint =
-      binop(sourceInfo, FixedPoint(this.width.shiftRight(castToInt(that, "Shift amount")), this.binaryPoint), ShiftRightOp, validateShiftAmount(castToInt(that, "Shift amount")))
-    override def do_>> (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): FixedPoint =
-      binop(sourceInfo, FixedPoint(this.width, this.binaryPoint), DynamicShiftRightOp, that)
-
     override def do_asUInt(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt = pushOp(DefPrim(sourceInfo, UInt(this.width), AsUIntOp, ref))
     override def do_asSInt(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): SInt = pushOp(DefPrim(sourceInfo, SInt(this.width), AsSIntOp, ref))
 
@@ -1755,19 +1712,17 @@ package experimental {
       Mux(this < Interval.Zero, (Interval.Zero - this), this)
     }
 
-    override def do_<< (that: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Interval =
-      binop(sourceInfo, Interval(this.range << castToInt(that, "Shift amount")), ShiftLeftOp, that)
+    override def do_<< (that: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): this.type =
+      binop(sourceInfo, Interval(this.range << castToInt(that, "Shift amount")), ShiftLeftOp, that).asInstanceOf[this.type]
 
-    override def do_<< (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Interval = {
-      binop(sourceInfo, Interval(this.range << that), DynamicShiftLeftOp, that)
-    }
+    override def do_<< (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): this.type =
+      binop(sourceInfo, Interval(this.range << that), DynamicShiftLeftOp, that).asInstanceOf[this.type]
 
-    override def do_>> (that: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Interval =
-      binop(sourceInfo, Interval(this.range >> castToInt(that, "Shift amount")), ShiftRightOp, that)
+    override def do_>> (that: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): this.type =
+      binop(sourceInfo, Interval(this.range >> castToInt(that, "Shift amount")), ShiftRightOp, that).asInstanceOf[this.type]
 
-    override def do_>> (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Interval = {
-      binop(sourceInfo, Interval(this.range >> that), DynamicShiftRightOp, that)
-    }
+    override def do_>> (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): this.type =
+      binop(sourceInfo, Interval(this.range >> that), DynamicShiftRightOp, that).asInstanceOf[this.type]
 
     /**
       * Squeeze returns the intersection of the ranges this interval and that Interval
