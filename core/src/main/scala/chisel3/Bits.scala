@@ -209,12 +209,12 @@ sealed abstract class Bits(private[chisel3] val width: Width) extends Element wi
     * @note For [[SInt]]s only, this will do sign extension.
     * @group Bitwise
     */
-  final def pad(that: Int): this.type = macro SourceInfoTransform.thatArg
+  final def pad(that: BigInt): this.type = macro SourceInfoTransform.thatArg
 
   /** @group SourceInfoTransformMacro */
-  def do_pad(that: Int)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): this.type = this.width match {
+  def do_pad(that: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): this.type = this.width match {
     case KnownWidth(w) if w >= that => this
-    case _ => binop(sourceInfo, cloneTypeWidth(this.width max Width(that)), PadOp, that)
+    case _ => binop(sourceInfo, cloneTypeWidth(this.width max Width(castToInt(that, "pad amount"))), PadOp, that)
   }
 
   /** Bitwise inversion operator
@@ -241,18 +241,6 @@ sealed abstract class Bits(private[chisel3] val width: Width) extends Element wi
   /** @group SourceInfoTransformMacro */
   def do_<< (that: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bits
 
-  /** Static left shift operator
-    *
-    * @param that an amount to shift by
-    * @return this $coll with `that` many zeros concatenated to its least significant end
-    * $sumWidthInt
-    * @group Bitwise
-    */
-  final def << (that: Int): Bits = macro SourceInfoWhiteboxTransform.thatArg
-
-  /** @group SourceInfoTransformMacro */
-  def do_<< (that: Int)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bits
-
   /** Dynamic left shift operator
     *
     * @param that a hardware component
@@ -278,18 +266,6 @@ sealed abstract class Bits(private[chisel3] val width: Width) extends Element wi
   /** @group SourceInfoTransformMacro */
   def do_>> (that: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bits
 
-  /** Static right shift operator
-    *
-    * @param that an amount to shift by
-    * @return this $coll with `that` many least significant bits truncated
-    * $unchangedWidth
-    * @group Bitwise
-    */
-  final def >> (that: Int): Bits = macro SourceInfoWhiteboxTransform.thatArg
-
-  /** @group SourceInfoTransformMacro */
-  def do_>> (that: Int)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bits
-
   /** Dynamic right shift operator
     *
     * @param that a hardware component
@@ -302,9 +278,6 @@ sealed abstract class Bits(private[chisel3] val width: Width) extends Element wi
 
   /** @group SourceInfoTransformMacro */
   def do_>> (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bits
-
-  /** Returns the contents of this wire as a [[scala.collection.Seq]] of [[Bool]]. */
-  final def toBools(): Seq[Bool] = macro SourceInfoTransform.noArg
 
   /** Returns the contents of this wire as a [[scala.collection.Seq]] of [[Bool]]. */
   final def asBools(): Seq[Bool] = macro SourceInfoTransform.noArg
@@ -604,16 +577,12 @@ sealed class UInt private[chisel3] (width: Width) extends Bits(width) with Num[U
   /** @group SourceInfoTransformMacro */
   def do_unary_! (implicit sourceInfo: SourceInfo, compileOptions: CompileOptions) : Bool = this === 0.U(1.W)
 
-  override def do_<< (that: Int)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt =
-    binop(sourceInfo, UInt(this.width + that), ShiftLeftOp, validateShiftAmount(that))
   override def do_<< (that: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt =
-    this << castToInt(that, "Shift amount")
+    binop(sourceInfo, UInt(this.width + castToInt(that, "Shift amount")), ShiftLeftOp, validateShiftAmount(castToInt(that, "Shift amount")))
   override def do_<< (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt =
     binop(sourceInfo, UInt(this.width.dynamicShiftLeft(that.width)), DynamicShiftLeftOp, that)
-  override def do_>> (that: Int)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt =
-    binop(sourceInfo, UInt(this.width.shiftRight(that)), ShiftRightOp, validateShiftAmount(that))
   override def do_>> (that: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt =
-    this >> castToInt(that, "Shift amount")
+    binop(sourceInfo, UInt(this.width.shiftRight(castToInt(that, "Shift amount"))), ShiftRightOp, validateShiftAmount(castToInt(that, "Shift amount")))
   override def do_>> (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt =
     binop(sourceInfo, UInt(this.width), DynamicShiftRightOp, that)
 
@@ -882,16 +851,12 @@ sealed class SInt private[chisel3] (width: Width) extends Bits(width) with Num[S
     Mux(this < 0.S, (-this), this)
   }
 
-  override def do_<< (that: Int)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): SInt =
-    binop(sourceInfo, SInt(this.width + that), ShiftLeftOp, validateShiftAmount(that))
   override def do_<< (that: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): SInt =
-    this << castToInt(that, "Shift amount")
+    binop(sourceInfo, SInt(this.width + castToInt(that, "Shift amount")), ShiftLeftOp, validateShiftAmount(castToInt(that, "Shift amount")))
   override def do_<< (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): SInt =
     binop(sourceInfo, SInt(this.width.dynamicShiftLeft(that.width)), DynamicShiftLeftOp, that)
-  override def do_>> (that: Int)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): SInt =
-    binop(sourceInfo, SInt(this.width.shiftRight(that)), ShiftRightOp, validateShiftAmount(that))
   override def do_>> (that: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): SInt =
-    this >> castToInt(that, "Shift amount")
+    binop(sourceInfo, SInt(this.width.shiftRight(castToInt(that, "Shift amount"))), ShiftRightOp, validateShiftAmount(castToInt(that, "Shift amount")))
   override def do_>> (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): SInt =
     binop(sourceInfo, SInt(this.width), DynamicShiftRightOp, that)
 
@@ -1444,16 +1409,12 @@ package experimental {
       Mux(this < 0.F(0.BP), 0.F(0.BP) - this, this)
     }
 
-    override def do_<< (that: Int)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): FixedPoint =
-      binop(sourceInfo, FixedPoint(this.width + that, this.binaryPoint), ShiftLeftOp, validateShiftAmount(that))
     override def do_<< (that: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): FixedPoint =
-      (this << castToInt(that, "Shift amount")).asFixedPoint(this.binaryPoint)
+      binop(sourceInfo, FixedPoint(this.width + castToInt(that, "Shift amount"), this.binaryPoint), ShiftLeftOp, castToInt(that, "Shift amount")).asFixedPoint(this.binaryPoint)
     override def do_<< (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): FixedPoint =
       binop(sourceInfo, FixedPoint(this.width.dynamicShiftLeft(that.width), this.binaryPoint), DynamicShiftLeftOp, that)
-    override def do_>> (that: Int)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): FixedPoint =
-      binop(sourceInfo, FixedPoint(this.width.shiftRight(that), this.binaryPoint), ShiftRightOp, validateShiftAmount(that))
     override def do_>> (that: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): FixedPoint =
-      (this >> castToInt(that, "Shift amount")).asFixedPoint(this.binaryPoint)
+      binop(sourceInfo, FixedPoint(this.width.shiftRight(castToInt(that, "Shift amount")), this.binaryPoint), ShiftRightOp, validateShiftAmount(castToInt(that, "Shift amount")))
     override def do_>> (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): FixedPoint =
       binop(sourceInfo, FixedPoint(this.width, this.binaryPoint), DynamicShiftRightOp, that)
 
@@ -1794,22 +1755,15 @@ package experimental {
       Mux(this < Interval.Zero, (Interval.Zero - this), this)
     }
 
-    override def do_<< (that: Int)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Interval =
-      binop(sourceInfo, Interval(this.range << that), ShiftLeftOp, that)
-
     override def do_<< (that: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Interval =
-      do_<<(that.toInt)
+      binop(sourceInfo, Interval(this.range << castToInt(that, "Shift amount")), ShiftLeftOp, that)
 
     override def do_<< (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Interval = {
       binop(sourceInfo, Interval(this.range << that), DynamicShiftLeftOp, that)
     }
 
-    override def do_>> (that: Int)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Interval = {
-      binop(sourceInfo, Interval(this.range >> that), ShiftRightOp, that)
-    }
-
     override def do_>> (that: BigInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Interval =
-      do_>>(that.toInt)
+      binop(sourceInfo, Interval(this.range >> castToInt(that, "Shift amount")), ShiftRightOp, that)
 
     override def do_>> (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Interval = {
       binop(sourceInfo, Interval(this.range >> that), DynamicShiftRightOp, that)
