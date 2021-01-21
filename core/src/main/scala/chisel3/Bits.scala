@@ -240,6 +240,36 @@ sealed abstract class Bits(private[chisel3] val width: Width) extends Element wi
   def do_>> (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): this.type =
     binop(sourceInfo, cloneTypeWidth(this.width), DynamicShiftRightOp, that)
 
+  /** Or reduction operator
+    *
+    * @return a hardware [[Bool]] resulting from every bit of this $coll or'd together
+    * @group Bitwise
+    */
+  final def orR(): Bool = macro SourceInfoTransform.noArg
+
+  /** @group SourceInfoTransformMacro */
+  def do_orR(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool = redop(sourceInfo, OrReduceOp)
+
+  /** And reduction operator
+    *
+    * @return a hardware [[Bool]] resulting from every bit of this $coll and'd together
+    * @group Bitwise
+    */
+  final def andR(): Bool = macro SourceInfoTransform.noArg
+
+  /** @group SourceInfoTransformMacro */
+  def do_andR(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool = redop(sourceInfo, AndReduceOp)
+
+  /** Exclusive or (xor) reduction operator
+    *
+    * @return a hardware [[Bool]] resulting from every bit of this $coll xor'd together
+    * @group Bitwise
+    */
+  final def xorR(): Bool = macro SourceInfoTransform.noArg
+
+  /** @group SourceInfoTransformMacro */
+  def do_xorR(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool = redop(sourceInfo, XorReduceOp)
+
   /** Returns the contents of this wire as a [[scala.collection.Seq]] of [[Bool]]. */
   final def asBools(): Seq[Bool] = macro SourceInfoTransform.noArg
 
@@ -496,35 +526,6 @@ sealed class UInt private[chisel3] (width: Width) extends Bits(width) with Num[U
   def do_unary_~ (implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt =
     unop(sourceInfo, UInt(width = width), BitNotOp)
 
-  // REVIEW TODO: Can these be defined on Bits?
-  /** Or reduction operator
-    *
-    * @return a hardware [[Bool]] resulting from every bit of this $coll or'd together
-    * @group Bitwise
-    */
-  final def orR(): Bool = macro SourceInfoTransform.noArg
-
-  /** And reduction operator
-    *
-    * @return a hardware [[Bool]] resulting from every bit of this $coll and'd together
-    * @group Bitwise
-    */
-  final def andR(): Bool = macro SourceInfoTransform.noArg
-
-  /** Exclusive or (xor) reduction operator
-    *
-    * @return a hardware [[Bool]] resulting from every bit of this $coll xor'd together
-    * @group Bitwise
-    */
-  final def xorR(): Bool = macro SourceInfoTransform.noArg
-
-  /** @group SourceInfoTransformMacro */
-  def do_orR(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool = redop(sourceInfo, OrReduceOp)
-  /** @group SourceInfoTransformMacro */
-  def do_andR(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool = redop(sourceInfo, AndReduceOp)
-  /** @group SourceInfoTransformMacro */
-  def do_xorR(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool = redop(sourceInfo, XorReduceOp)
-
   override def do_< (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool = compop(sourceInfo, LessOp, that)
   override def do_> (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool = compop(sourceInfo, GreaterOp, that)
   override def do_<= (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool = compop(sourceInfo, LessEqOp, that)
@@ -752,6 +753,13 @@ sealed class SInt private[chisel3] (width: Width) extends Bits(width) with Num[S
   /** @group SourceInfoTransformMacro */
   def do_-% (that: SInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): SInt =
     (this -& that).tail(1).asSInt
+
+  override def do_orR(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool =
+    throwException(s"orR is illegal use at $this")
+  override def do_andR(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool =
+    throwException(s"andR is illegal use at $this")
+  override def do_xorR(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool =
+    throwException(s"xorR is illegal use at $this")
 
   /** Bitwise and operator
     *
@@ -1315,6 +1323,13 @@ package experimental {
       */
     final def ^ (that: FixedPoint): FixedPoint = macro SourceInfoTransform.thatArg
 
+    override def do_orR(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool =
+      throwException(s"orR is illegal use at $this")
+    override def do_andR(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool =
+      throwException(s"andR is illegal use at $this")
+    override def do_xorR(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool =
+      throwException(s"xorR is illegal use at $this")
+
     /** @group SourceInfoTransformMacro */
     def do_& (that: FixedPoint)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): FixedPoint =
       throwException(s"And is illegal between $this and $that")
@@ -1638,6 +1653,13 @@ package experimental {
     def do_-%(that: Interval)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Interval = {
       throwException(s"Non-growing subtraction is not supported on Intervals: ${sourceInfo}, try squeeze")
     }
+
+    override def do_orR(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool =
+      throwException(s"orR is illegal use at $this")
+    override def do_andR(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool =
+      throwException(s"andR is illegal use at $this")
+    override def do_xorR(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool =
+      throwException(s"xorR is illegal use at $this")
 
     final def &(that: Interval): Interval = macro SourceInfoTransform.thatArg
     final def |(that: Interval): Interval = macro SourceInfoTransform.thatArg
