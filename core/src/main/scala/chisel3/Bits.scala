@@ -187,7 +187,8 @@ sealed abstract class Bits(private[chisel3] val width: Width) extends Element wi
   final def unary_~ (): this.type = macro SourceInfoWhiteboxTransform.noArg
 
   /** @group SourceInfoTransformMacro */
-  def do_unary_~ (implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): this.type
+  def do_unary_~ (implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): this.type =
+    unop(sourceInfo, cloneType, BitNotOp)
 
   /** Static left shift operator
     *
@@ -523,10 +524,6 @@ sealed class UInt private[chisel3] (width: Width) extends Bits(width) with Num[U
   //  override def abs: UInt = macro SourceInfoTransform.noArg
   def do_abs(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt = this
 
-  /** @group SourceInfoTransformMacro */
-  def do_unary_~ (implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): UInt =
-    unop(sourceInfo, UInt(width = width), BitNotOp)
-
   override def do_< (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool = compop(sourceInfo, LessOp, that)
   override def do_> (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool = compop(sourceInfo, GreaterOp, that)
   override def do_<= (that: UInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool = compop(sourceInfo, LessEqOp, that)
@@ -800,8 +797,8 @@ sealed class SInt private[chisel3] (width: Width) extends Bits(width) with Num[S
     binop(sourceInfo, UInt(this.width max that.width), BitXorOp, that).asSInt
 
   /** @group SourceInfoTransformMacro */
-  def do_unary_~ (implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): SInt =
-    unop(sourceInfo, UInt(width = width), BitNotOp).asSInt
+  override def do_unary_~ (implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): this.type =
+    unop(sourceInfo, UInt(width = width), BitNotOp).asSInt().asInstanceOf[this.type]
 
   override def do_< (that: SInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool = compop(sourceInfo, LessOp, that)
   override def do_> (that: SInt)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool = compop(sourceInfo, GreaterOp, that)
@@ -1044,10 +1041,6 @@ sealed class Bool() extends UInt(1.W) with Reset {
   /** @group SourceInfoTransformMacro */
   def do_^ (that: Bool)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool =
     binop(sourceInfo, Bool(), BitXorOp, that)
-
-  /** @group SourceInfoTransformMacro */
-  override def do_unary_~ (implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool =
-    unop(sourceInfo, Bool(), BitNotOp)
 
   /** Logical or operator
     *
@@ -1352,7 +1345,7 @@ package experimental {
     }
 
     /** @group SourceInfoTransformMacro */
-    def do_unary_~ (implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): FixedPoint =
+    override def do_unary_~ (implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): this.type =
       throwException(s"Not is illegal on $this")
 
     override def do_< (that: FixedPoint)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool = compop(sourceInfo, LessOp, that)
@@ -1713,7 +1706,7 @@ package experimental {
     }
 
     /** Returns this wire bitwise-inverted. */
-    def do_unary_~ (implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Interval =
+    override def do_unary_~ (implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): this.type =
       throwException(s"Not is illegal on $this")
 
     override def do_< (that: Interval)(implicit sourceInfo: SourceInfo, compileOptions: CompileOptions): Bool = compop(sourceInfo, LessOp, that)
