@@ -91,8 +91,9 @@ object Minimizer {
   /**
     * If two terms have different value, then their order is determined by the value, or by the mask.
     */
-  private[minimizer] implicit def ordering: Ordering[BitPat] = (x: BitPat, y: BitPat) => {
-    if (x.value < y.value || x.value == y.value && x.mask > y.mask) -1 else 1
+  private[minimizer] implicit def ordering: Ordering[BitPat] = new Ordering[BitPat] {
+    override def compare(x: BitPat, y: BitPat): Int =
+      if (x.value < y.value || x.value == y.value && x.mask > y.mask) -1 else 1
   }
 }
 
