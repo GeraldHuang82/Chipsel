@@ -10,14 +10,20 @@ object decode {
   val minimizer = QMCMinimizer()
   def apply(addr: UInt, default: BitPat, mapping: Iterable[(BitPat, BitPat)]): UInt = {
     val minimizedTable = minimizer.minimize(default, mapping.toSeq)
-    val (inputs, orPlaneOutputs) = pla(minimizedTable)
-    inputs := addr
+    if (minimizedTable.isEmpty) {
+      val outputs = Wire(UInt(default.getWidth.W))
+      outputs := default.value.U(default.getWidth.W)
+      outputs
+    } else {
+      val (inputs, orPlaneOutputs) = pla(minimizedTable)
+      inputs := addr
 
-    val widthOfOutputs = orPlaneOutputs.width
-    val outputs = Wire(UInt(widthOfOutputs))
-    // invert outputs which defaults to `1`
-    outputs := orPlaneOutputs ^ default.value.U(widthOfOutputs)
-    outputs
+      val widthOfOutputs = orPlaneOutputs.width
+      val outputs = Wire(UInt(widthOfOutputs))
+      // invert outputs which defaults to `1`
+      outputs := orPlaneOutputs ^ default.value.U(widthOfOutputs)
+      outputs
+    }
   }
 
   def apply(addr: UInt, default: Seq[BitPat], mappingIn: Iterable[(BitPat, Seq[BitPat])]): Seq[UInt] = {

@@ -27,6 +27,8 @@ object pla {
     *          }}}
     */
   def apply(table: Seq[(BitPat, BitPat)]): (UInt, UInt) = {
+    require(table.nonEmpty, "pla table must not be empty")
+
     val (inputTerms, outputTerms) = table.unzip
     require(
       if (inputTerms.length > 1)
