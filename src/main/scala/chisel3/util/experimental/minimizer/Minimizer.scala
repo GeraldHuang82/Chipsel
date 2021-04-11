@@ -1,9 +1,6 @@
 package chisel3.util.experimental.minimizer
 
-import scala.collection.mutable
-
-import chisel3._
-import chisel3.util.{BitPat, Cat}
+import chisel3.util.BitPat
 
 object Minimizer {
   private[minimizer] implicit class Implicant(x: BitPat) {
