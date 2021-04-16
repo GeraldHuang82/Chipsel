@@ -19,7 +19,7 @@ object QMCMinimizer {
     *         b: nonessential prime implicants
     *         c: implicants that are not cover by any of the essential prime implicants
     */
-  def getEssentialPrimeImplicants(primes: Seq[BitPat], minterms: Seq[BitPat]): (Seq[BitPat], Seq[BitPat], Seq[BitPat]) = {
+  def getEssentialPrimeImplicants(primes: Seq[Implicant], minterms: Seq[Implicant]): (Seq[Implicant], Seq[Implicant], Seq[Implicant]) = {
     // primeCovers(i): implicants that `prime(i)` covers
     val primeCovers = primes.map(p => minterms.filter(p.covers))
     // eliminate prime implicants that can be covered by other prime implicants
@@ -58,13 +58,13 @@ object QMCMinimizer {
     * @param minterms   Implicants that are not covered by essential prime implicants
     * @return Selected nonessential prime implicants
     */
-  def getCover(implicants: Seq[BitPat], minterms: Seq[BitPat]): Seq[BitPat] = {
+  def getCover(implicants: Seq[Implicant], minterms: Seq[Implicant]): Seq[Implicant] = {
     /** Calculate the implementation cost (using comparators) of a list of implicants, more don't cares is cheaper
       *
       * @param cover Implicant list
       * @return How many comparators need to implement this list of implicants
       */
-    def getCost(cover: Seq[BitPat]): Int = cover.map(_.mask.bitCount).sum
+    def getCost(cover: Seq[Implicant]): Int = cover.map(_.bp.mask.bitCount).sum
 
     /** Determine if one combination of prime implicants is cheaper when implementing as comparators.
       * Shorter term list is cheaper, term list with more don't cares is cheaper (less comparators)
@@ -73,7 +73,7 @@ object QMCMinimizer {
       * @param b    Operand b
       * @return `a` < `b`
       */
-    def cheaper(a: Seq[BitPat], b: Seq[BitPat]): Boolean = {
+    def cheaper(a: Seq[Implicant], b: Seq[Implicant]): Boolean = {
       val ca = getCost(a)
       val cb = getCost(b)
 
@@ -87,7 +87,7 @@ object QMCMinimizer {
         * @return `a` < `b`
         */
       @tailrec
-      def listLess(a: Seq[BitPat], b: Seq[BitPat]): Boolean = b.nonEmpty && (a.isEmpty || a.head < b.head || a.head == b.head && listLess(a.tail, b.tail))
+      def listLess(a: Seq[Implicant], b: Seq[Implicant]): Boolean = b.nonEmpty && (a.isEmpty || a.head < b.head || a.head == b.head && listLess(a.tail, b.tail))
 
       ca < cb || ca == cb && listLess(a.sortWith(_ < _), b.sortWith(_ < _))
     }
@@ -98,10 +98,10 @@ object QMCMinimizer {
       // cover(i): nonessential prime implicants that covers `minterms(i)`
       val cover = minterms.map(m => implicants.filter(_.covers(m)))
       // apply [[Petrick's method https://en.wikipedia.org/wiki/Petrick%27s_method]]
-      val all = cover.tail.foldLeft(cover.head.map(Seq(_)))((c0, c1) => c0.flatMap(a => c1.map(a :+ _)))
+      val all = cover.tail.foldLeft(cover.head.map(Set(_)))((c0, c1) => c0.flatMap(a => c1.map(a + _)))
       all.map(_.toList).reduceLeft((a, b) => if (cheaper(a, b)) a else b)
     } else
-      Seq[BitPat]()
+      Seq[Implicant]()
   }
 }
 
@@ -115,7 +115,7 @@ class QMCMinimizer extends Minimizer {
     val (inputs, outputs) = table.unzip
 
     require(outputs.map(_.getWidth == default.getWidth).reduce(_ && _), "All output BitPats and default BitPat must have the same length")
-    require(if (inputs.length > 1) inputs.tail.map(_.getWidth == inputs.head.getWidth).reduce(_ && _) else true, "All input BitPats must have the same length")
+    require(if (inputs.length > 1) inputs.tail.map(_.width == inputs.head.width).reduce(_ && _) else true, "All input BitPats must have the same length")
 
     // make sure no two inputs specified in the truth table intersect
     for (t <- inputs.tails; if t.nonEmpty)
@@ -123,18 +123,20 @@ class QMCMinimizer extends Minimizer {
         require(!t.head.intersects(u), "truth table entries " + t.head + " and " + u + " overlap")
 
     // number of inputs
-    val n = inputs.head.getWidth
+    val n = inputs.head.width
     // number of outputs
     val m = outputs.head.getWidth
 
     // for all outputs
     (0 until m).flatMap(i => {
+      val outputBp = BitPat("b" + "?" * (m - i - 1) + "1" + "?" * i)
+
       // Minterms, implicants that makes the output to be 1
-      val mint = table.filter { case (_, t) => t.mask.testBit(i) && t.value.testBit(i) }.map(_._1)
+      val mint: Seq[Implicant] = table.filter { case (_, t) => t.mask.testBit(i) && t.value.testBit(i) }.map(_._1).map(toImplicant)
       // Maxterms, implicants that makes the output to be 0
-      val maxt = table.filter { case (_, t) => t.mask.testBit(i) && !t.value.testBit(i) }.map(_._1)
+      val maxt: Seq[Implicant] = table.filter { case (_, t) => t.mask.testBit(i) && !t.value.testBit(i) }.map(_._1).map(toImplicant)
       // Don't cares, implicants that can produce either 0 or 1 as output
-      val dc = table.filter { case (_, t) => !t.mask.testBit(i) }.map(_._1)
+      val dc: Seq[Implicant] = table.filter { case (_, t) => !t.mask.testBit(i) }.map(_._1).map(toImplicant)
 
       val (implicants, defaultToDc) = default match {
         case x if x.mask.testBit(i) && !x.value.testBit(i) => // default to 0
@@ -145,38 +147,50 @@ class QMCMinimizer extends Minimizer {
           (mint, true)
       }
 
-      val primeImplicants = (0 to n).reverse
-        .map(b => implicants.filter(b == _.mask.bitCount)) // implicants grouped by '?' count
-        .foldLeft((Seq[BitPat](), Seq[BitPat]())) { case ((x, y), z) =>
-          /** x: collected prime implicants
-            * y: merge result from last round, have same number of '?' of this round
-            * z: implicants for this round
-            */
-          val implicants = y ++ z
-          val r = implicants.map(a => {
-            val merged = implicants.flatMap(b => a.mergeIfSimilar(b))
-            (a, merged)
-          }).partition(_._2.isEmpty)
-          (x ++ r._1.map(_._1), r._2.flatMap(_._2).foldLeft(Seq[BitPat]()){ case (acc, elem) => // deduplicate r._2._2
-            acc.find(elem.sameAs) match {
-              case Some(_) => acc
-              case None => acc :+ elem
+      if (!defaultToDc && dc.isEmpty) {
+        // As an elaboration performance optimization, don't be too clever if
+        // there are no don't-cares; synthesis can figure it out.
+        return implicants.map(a => (a.bp, outputBp))
+      }
+
+      implicants.foreach(_.isPrime = true)
+      val cols = (0 to n).reverse.map(b => implicants.filter(b == _.bp.mask.bitCount))
+      val mergeTable = cols.map(
+        c => (0 to n).map(
+          b => collection.mutable.Set(c.filter(b == _.bp.value.bitCount):_*)
+        )
+      )
+
+      var primeImplicants = List[Implicant]()
+      for (i <- 0 to n) {
+        for (j <- 0 until n - i) {
+          mergeTable(i)(j).foreach(a => mergeTable(i + 1)(j) ++= mergeTable(i)(j + 1).filter(_ similar a).map(_ merge a))
+        }
+        if (defaultToDc) {
+          for (j <- 0 until n - i) {
+            for (a <- mergeTable(i)(j).filter(_.isPrime)) {
+              val dc = a.getImplicitDC(maxt, above = true)
+              if (dc.isDefined)
+                mergeTable(i + 1)(j) += dc.get merge a
             }
-          })
-        }._1
+            for (a <- mergeTable(i)(j + 1).filter(_.isPrime)) {
+              val dc = a.getImplicitDC(maxt, above = false)
+              if (dc.isDefined)
+                mergeTable(i + 1)(j) += a merge dc.get
+            }
+          }
+        }
+        for (r <- mergeTable(i))
+          for (p <- r; if p.isPrime)
+            primeImplicants = p :: primeImplicants
+      }
+
+      primeImplicants = primeImplicants.sortWith(_ < _)
 
       val (essentialPrimeImplicants, nonessentialPrimeImplicants, uncoveredImplicants) =
-        QMCMinimizer.getEssentialPrimeImplicants(
-          if (defaultToDc)
-            primeImplicants.map { a =>
-              (a +: a.expand(maxt)).reduce(_.mergeIfSimilar(_).getOrElse(a))
-            }
-          else primeImplicants,
-          implicants
-        )
+        QMCMinimizer.getEssentialPrimeImplicants(primeImplicants, implicants)
 
-      val outputs = BitPat("b" + "?" * (m - i - 1) + "1" + "?" * i)
-      (essentialPrimeImplicants ++ QMCMinimizer.getCover(nonessentialPrimeImplicants, uncoveredImplicants)).map((_, outputs))
+      (essentialPrimeImplicants ++ QMCMinimizer.getCover(nonessentialPrimeImplicants, uncoveredImplicants)).map(a => (a.bp, outputBp))
     })
   }
 }

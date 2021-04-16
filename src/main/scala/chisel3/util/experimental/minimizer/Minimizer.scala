@@ -3,7 +3,20 @@ package chisel3.util.experimental.minimizer
 import chisel3.util.BitPat
 
 object Minimizer {
-  private[minimizer] implicit class Implicant(x: BitPat) {
+  implicit def toImplicant(x: BitPat): Implicant = new Implicant(x)
+
+  private[minimizer] class Implicant(val bp: BitPat) {
+    var isPrime: Boolean = true
+
+    def width = bp.getWidth
+
+    override def equals(that: Any): Boolean = that match {
+      case x: Implicant => bp.value == x.bp.value && bp.mask == x.bp.mask
+      case _ => false
+    }
+
+    override def hashCode = bp.value.toInt
+
     /** Check whether two implicants have the same value on all of the cared bits (intersection).
       *
       * {{{
@@ -17,34 +30,41 @@ object Minimizer {
       * @param y Implicant to be checked with
       * @return Whether two implicants intersect
       */
-    def intersects(y: BitPat): Boolean = ((x.value ^ y.value) & x.mask & y.mask) == 0
+    def intersects(y: Implicant): Boolean = ((bp.value ^ y.bp.value) & bp.mask & y.bp.mask) == 0
 
-    /** Check if two implicants are the same
-      * @param y Implicant to be checked with
-      * @return Whether two implicants are the same
-      */
-    def sameAs(y: BitPat): Boolean = x.mask == y.mask && x.value == y.value
-
-    /** Merge two similar implicants if they are similar
-      * Rule of merging: '0' and '1' merge to '?'
+    /** Check whether two implicants are similar.
       * Two implicants are "similar" when they satisfy all the following rules:
       *   1. have the same mask ('?'s are at the same positions)
       *   1. values only differ by one bit
+      *   1. the bit at the differed position of this term is '1' (that of the other term is '0')
       *
       * @example this = 11?0, x = 10?0 -> similar
       * @example this = 11??, x = 10?0 -> not similar, violated rule 1
       * @example this = 11?1, x = 10?0 -> not similar, violated rule 2
-      * @param y Implicant to be merged with
-      * @return Merge result wrapped in [[Some]] if `x` and `y` are similar,
-      *         [[None]] otherwise
+      * @example this = 10?0, x = 11?0 -> not similar, violated rule 3
+      * @param y Implicant to be checked with
+      * @return Whether this term is similar to the other
       */
-    def mergeIfSimilar(y: BitPat): Option[BitPat] = {
-      val diff = x.value ^ y.value
-      if (x.mask == y.mask && diff.bitCount == 1) { // similar
-        Some(new BitPat(x.value &~ diff, x.mask &~ diff, x.getWidth))
-      } else {
-        None
-      }
+    def similar(y: Implicant): Boolean = {
+      val diff = bp.value - y.bp.value
+      bp.mask == y.bp.mask && bp.value > y.bp.value && (diff & diff - 1) == 0
+    }
+
+    /** Merge two similar implicants
+      * Rule of merging: '0' and '1' merge to '?'
+      *
+      * @todo return Option[Implicant], use flatMap.
+      * @param y Term to be merged with
+      * @return A new term representing the merge result
+      */
+    def merge(y: Implicant): Implicant = {
+      require(similar(y), s"merge is only reasonable when $this similar $y")
+
+      // if two term can be merged, then they both are not prime implicants.
+      isPrime = false
+      y.isPrime = false
+      val bit = bp.value - y.bp.value
+      new BitPat(bp.value &~ bit, bp.mask &~ bit, width)
     }
 
     /** Check all bits in `x` cover the correspond position in `y`.
@@ -69,31 +89,37 @@ object Minimizer {
       * @param y to check is covered by `x` or not.
       * @return Whether `x` covers `y`
       */
-    def covers(y: BitPat): Boolean = ((x.value ^ y.value) & x.mask | ~y.mask & x.mask) == 0
+    def covers(y: Implicant): Boolean = ((bp.value ^ y.bp.value) & bp.mask | ~y.bp.mask & bp.mask) == 0
 
-    /** Expand implicant `x` to a [[Seq]] of implicants without touching the forbidden implicants specified by `maxt`.
-      * @param maxt The forbidden list
-      * @return     Expanded implicants
+    /** Search for implicit don't cares of `term`. The new implicant must NOT intersect with any of the implicants from `maxterm`.
+      *
+      * @param maxterms The forbidden list of searching
+      * @param above    Are we searching for implicants with one more `1` in value than `this`? (or search for implicants with one less `1`)
+      * @return The implicants that we found or `null`
       */
-    def expand(maxt: Seq[BitPat]): Seq[BitPat] = (0 until x.getWidth).flatMap{ i =>
-      val newImplicant = x match {
-        case x if x.mask.testBit(i) && !x.value.testBit(i) => // this bit is 0
-          Some(new BitPat(x.value.setBit(i), x.mask, x.getWidth))
-        case x if x.mask.testBit(i) && x.value.testBit(i) => // this bit is 1
-          Some(new BitPat(x.value.clearBit(i), x.mask, x.getWidth))
-        case x if !x.mask.testBit(i) => // this bit is ?
-          None
+    def getImplicitDC(maxterms: Seq[Implicant], above: Boolean): Option[Implicant] = {
+      // foreach input outputs in implicant `term`
+      for (i <- 0 until width) {
+        var t: Option[Implicant] = None
+        if (above && (bp.mask.testBit(i) && !bp.value.testBit(i))) // this bit is `0`
+          t = Some(new BitPat(bp.value.setBit(i), bp.mask, width)) // generate a new implicant with i-th position being `1` and others the same as `this`
+        else if (!above && (bp.mask.testBit(i) && bp.value.testBit(i))) // this bit is `1`
+          t = Some(new BitPat(bp.value.clearBit(i), bp.mask, width)) // generate a new implicant with i-th position being `0` and others the same as `this`
+        if (t.isDefined && !maxterms.exists(_.intersects(t.get))) // make sure we are not using one implicant from the forbidden list
+          return t
       }
-      newImplicant.flatMap(a => if (maxt.exists(a.intersects(_))) None else Some(a))
+      None
     }
+
+    override def toString = (if (!isPrime) "Non" else "") + "Prime" + bp.toString.replace("BitPat", "Implicant")
   }
 
   /**
     * If two terms have different value, then their order is determined by the value, or by the mask.
     */
-  private[minimizer] implicit def ordering: Ordering[BitPat] = new Ordering[BitPat] {
-    override def compare(x: BitPat, y: BitPat): Int =
-      if (x.value < y.value || x.value == y.value && x.mask > y.mask) -1 else 1
+  private[minimizer] implicit def ordering: Ordering[Implicant] = new Ordering[Implicant] {
+    override def compare(x: Implicant, y: Implicant): Int =
+      if (x.bp.value < y.bp.value || x.bp.value == y.bp.value && x.bp.mask > y.bp.mask) -1 else 1
   }
 }
 

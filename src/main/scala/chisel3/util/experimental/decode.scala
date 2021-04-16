@@ -46,6 +46,7 @@ object decode {
     apply(
       addr,
       BitPat.dontCare(1),
-      onSet.map(BitPat(_) -> BitPat("b1")) ++ offSet.map(BitPat(_) -> BitPat("b0"))
+      onSet.map(u => BitPat(u.litValue().U(addr.width)) -> BitPat("b1")) ++
+        offSet.map(u => BitPat(u.litValue().U(addr.width)) -> BitPat("b0"))
     ).asBool()
 }
