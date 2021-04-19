@@ -4,11 +4,129 @@ import chisel3.util.BitPat
 
 import scala.annotation.tailrec
 import scala.math.Ordered.orderingToOrdered
-import Minimizer._
 
-object QMCMinimizer {
-  /** @return A instance of [[QMCMinimizer]] */
-  def apply(): QMCMinimizer = new QMCMinimizer()
+/** The [[https://en.wikipedia.org/wiki/Quine-McCluskey_algorithm]] decoder implementation. */
+class QMCMinimizer extends Minimizer {
+  private implicit def toImplicant(x: BitPat): Implicant = new Implicant(x)
+
+  private class Implicant(val bp: BitPat) {
+    var isPrime: Boolean = true
+
+    def width = bp.getWidth
+
+    override def equals(that: Any): Boolean = that match {
+      case x: Implicant => bp.value == x.bp.value && bp.mask == x.bp.mask
+      case _ => false
+    }
+
+    // todo: replace with `toString`
+    override def hashCode = bp.value.toInt
+
+    /** Check whether two implicants have the same value on all of the cared bits (intersection).
+      *
+      * {{{
+      * value ^^ x.value                                       // bits that are different
+      * (bits that are different) & x.mask                     // bits that are different and `this` care
+      * (bits that are different and `this` care) & y.mask     // bits that are different and `both` care
+      * (bits that are different and both care) == 0           // no (bits that are different and we both care) exists
+      * no (bits that are different and we both care) exists   // all cared bits are the same, two terms intersect
+      * }}}
+      *
+      * @param y Implicant to be checked with
+      * @return Whether two implicants intersect
+      */
+    def intersects(y: Implicant): Boolean = ((bp.value ^ y.bp.value) & bp.mask & y.bp.mask) == 0
+
+    /** Check whether two implicants are similar.
+      * Two implicants are "similar" when they satisfy all the following rules:
+      *   1. have the same mask ('?'s are at the same positions)
+      *   1. values only differ by one bit
+      *   1. the bit at the differed position of this term is '1' (that of the other term is '0')
+      *
+      * @example this = 11?0, x = 10?0 -> similar
+      * @example this = 11??, x = 10?0 -> not similar, violated rule 1
+      * @example this = 11?1, x = 10?0 -> not similar, violated rule 2
+      * @example this = 10?0, x = 11?0 -> not similar, violated rule 3
+      * @param y Implicant to be checked with
+      * @return Whether this term is similar to the other
+      */
+    def similar(y: Implicant): Boolean = {
+      val diff = bp.value - y.bp.value
+      bp.mask == y.bp.mask && bp.value > y.bp.value && (diff & diff - 1) == 0
+    }
+
+    /** Merge two similar implicants
+      * Rule of merging: '0' and '1' merge to '?'
+      *
+      * @todo return Option[Implicant], use flatMap.
+      * @param y Term to be merged with
+      * @return A new term representing the merge result
+      */
+    def merge(y: Implicant): Implicant = {
+      require(similar(y), s"merge is only reasonable when $this similar $y")
+
+      // if two term can be merged, then they both are not prime implicants.
+      isPrime = false
+      y.isPrime = false
+      val bit = bp.value - y.bp.value
+      new BitPat(bp.value &~ bit, bp.mask &~ bit, width)
+    }
+
+    /** Check all bits in `x` cover the correspond position in `y`.
+      *
+      * Rule to define coverage relationship among `0`, `1` and `?`:
+      *   1. '?' covers '0' and '1', '0' covers '0', '1' covers '1'
+      *   1. '1' doesn't cover '?', '1' doesn't cover '0'
+      *   1. '0' doesn't cover '?', '0' doesn't cover '1'
+      *
+      * For all bits that `x` don't care, `y` can be `0`, `1`, `?`
+      * For all bits that `x` care, `y` must be the same value and not masked.
+      * {{{
+      *    (~x.mask & -1) | ((x.mask) & ((x.value xnor y.value) & y.mask)) = -1
+      * -> ~x.mask | ((x.mask) & ((x.value xnor y.value) & y.mask)) = -1
+      * -> ~x.mask | ((x.value xnor y.value) & y.mask) = -1
+      * -> x.mask & ~((x.value xnor y.value) & y.mask) = 0
+      * -> x.mask & (~(x.value xnor y.value) | ~y.mask) = 0
+      * -> x.mask & ((x.value ^ y.value) | ~y.mask) = 0
+      * -> ((x.value ^ y.value) & x.mask | ~y.mask & x.mask) = 0
+      * }}}
+      *
+      * @param y to check is covered by `x` or not.
+      * @return Whether `x` covers `y`
+      */
+    def covers(y: Implicant): Boolean = ((bp.value ^ y.bp.value) & bp.mask | ~y.bp.mask & bp.mask) == 0
+
+    /** Search for implicit don't cares of `term`. The new implicant must NOT intersect with any of the implicants from `maxterm`.
+      *
+      * @param maxterms The forbidden list of searching
+      * @param above    Are we searching for implicants with one more `1` in value than `this`? (or search for implicants with one less `1`)
+      * @return The implicants that we found or `null`
+      *         @todo inline this
+      */
+    def getImplicitDC(maxterms: Seq[Implicant], above: Boolean): Option[Implicant] = {
+      // foreach input outputs in implicant `term`
+      for (i <- 0 until width) {
+        var t: Option[Implicant] = None
+        if (above && (bp.mask.testBit(i) && !bp.value.testBit(i))) // this bit is `0`
+          t = Some(new BitPat(bp.value.setBit(i), bp.mask, width)) // generate a new implicant with i-th position being `1` and others the same as `this`
+        else if (!above && (bp.mask.testBit(i) && bp.value.testBit(i))) // this bit is `1`
+          t = Some(new BitPat(bp.value.clearBit(i), bp.mask, width)) // generate a new implicant with i-th position being `0` and others the same as `this`
+        if (t.isDefined && !maxterms.exists(_.intersects(t.get))) // make sure we are not using one implicant from the forbidden list
+          return t
+      }
+      None
+    }
+
+    override def toString = (if (!isPrime) "Non" else "") + "Prime" + bp.toString.replace("BitPat", "Implicant")
+  }
+
+  /**
+    * If two terms have different value, then their order is determined by the value, or by the mask.
+    */
+  private implicit def ordering: Ordering[Implicant] = new Ordering[Implicant] {
+    override def compare(x: Implicant, y: Implicant): Int =
+      if (x.bp.value < y.bp.value || x.bp.value == y.bp.value && x.bp.mask > y.bp.mask) -1 else 1
+  }
 
   /** Calculate essential prime implicants based on previously calculated prime implicants and all implicants.
     *
@@ -19,7 +137,7 @@ object QMCMinimizer {
     *         b: nonessential prime implicants
     *         c: implicants that are not cover by any of the essential prime implicants
     */
-  def getEssentialPrimeImplicants(primes: Seq[Implicant], minterms: Seq[Implicant]): (Seq[Implicant], Seq[Implicant], Seq[Implicant]) = {
+  private def getEssentialPrimeImplicants(primes: Seq[Implicant], minterms: Seq[Implicant]): (Seq[Implicant], Seq[Implicant], Seq[Implicant]) = {
     // primeCovers(i): implicants that `prime(i)` covers
     val primeCovers = primes.map(p => minterms.filter(p.covers))
     // eliminate prime implicants that can be covered by other prime implicants
@@ -58,7 +176,7 @@ object QMCMinimizer {
     * @param minterms   Implicants that are not covered by essential prime implicants
     * @return Selected nonessential prime implicants
     */
-  def getCover(implicants: Seq[Implicant], minterms: Seq[Implicant]): Seq[Implicant] = {
+  private def getCover(implicants: Seq[Implicant], minterms: Seq[Implicant]): Seq[Implicant] = {
     /** Calculate the implementation cost (using comparators) of a list of implicants, more don't cares is cheaper
       *
       * @param cover Implicant list
@@ -97,18 +215,13 @@ object QMCMinimizer {
     if (minterms.nonEmpty) {
       // cover(i): nonessential prime implicants that covers `minterms(i)`
       val cover = minterms.map(m => implicants.filter(_.covers(m)))
-      // apply [[Petrick's method https://en.wikipedia.org/wiki/Petrick%27s_method]]
       val all = cover.tail.foldLeft(cover.head.map(Set(_)))((c0, c1) => c0.flatMap(a => c1.map(a + _)))
       all.map(_.toList).reduceLeft((a, b) => if (cheaper(a, b)) a else b)
     } else
       Seq[Implicant]()
   }
-}
 
-/** The [[https://en.wikipedia.org/wiki/Quine-McCluskey_algorithm]] decoder implementation. */
-class QMCMinimizer extends Minimizer {
   def minimize(default: BitPat, table: Seq[(BitPat, BitPat)]): Seq[(BitPat, BitPat)] = {
-
     require(table.nonEmpty, "Truth table must not be empty")
 
     // extract decode table to inputs and outputs
@@ -147,6 +260,7 @@ class QMCMinimizer extends Minimizer {
           (mint, true)
       }
 
+      // todo benchmark this
       if (!defaultToDc && dc.isEmpty) {
         // As an elaboration performance optimization, don't be too clever if
         // there are no don't-cares; synthesis can figure it out.
@@ -161,6 +275,7 @@ class QMCMinimizer extends Minimizer {
         )
       )
 
+      // todo: to val
       var primeImplicants = List[Implicant]()
       for (i <- 0 to n) {
         for (j <- 0 until n - i) {
@@ -188,9 +303,9 @@ class QMCMinimizer extends Minimizer {
       primeImplicants = primeImplicants.sortWith(_ < _)
 
       val (essentialPrimeImplicants, nonessentialPrimeImplicants, uncoveredImplicants) =
-        QMCMinimizer.getEssentialPrimeImplicants(primeImplicants, implicants)
+        getEssentialPrimeImplicants(primeImplicants, implicants)
 
-      (essentialPrimeImplicants ++ QMCMinimizer.getCover(nonessentialPrimeImplicants, uncoveredImplicants)).map(a => (a.bp, outputBp))
+      (essentialPrimeImplicants ++ getCover(nonessentialPrimeImplicants, uncoveredImplicants)).map(a => (a.bp, outputBp))
     })
   }
 }

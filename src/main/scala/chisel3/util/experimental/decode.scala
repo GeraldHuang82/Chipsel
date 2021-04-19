@@ -7,7 +7,7 @@ import chisel3.util.experimental.minimizer._
 import scala.collection.mutable.ArrayBuffer
 
 object decode {
-  val minimizer = QMCMinimizer()
+  val minimizer = new QMCMinimizer()
   def apply(addr: UInt, default: BitPat, mapping: Iterable[(BitPat, BitPat)]): UInt = {
     val minimizedTable = minimizer.minimize(default, mapping.toSeq)
     if (minimizedTable.isEmpty) {
@@ -35,6 +35,7 @@ object decode {
       yield apply(addr, thisDefault, thisMapping)
   }
 
+  // todo eliminate?
   def apply(addr: UInt, default: Seq[BitPat], mappingIn: List[(UInt, Seq[BitPat])]): Seq[UInt] =
     apply(
       addr,
