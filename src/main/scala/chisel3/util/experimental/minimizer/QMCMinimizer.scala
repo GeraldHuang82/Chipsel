@@ -19,7 +19,6 @@ class QMCMinimizer extends Minimizer {
       case _ => false
     }
 
-    // todo: replace with `toString`
     override def hashCode = bp.value.toInt
 
     /** Check whether two implicants have the same value on all of the cared bits (intersection).
@@ -58,7 +57,6 @@ class QMCMinimizer extends Minimizer {
     /** Merge two similar implicants
       * Rule of merging: '0' and '1' merge to '?'
       *
-      * @todo return Option[Implicant], use flatMap.
       * @param y Term to be merged with
       * @return A new term representing the merge result
       */
@@ -95,27 +93,6 @@ class QMCMinimizer extends Minimizer {
       * @return Whether `x` covers `y`
       */
     def covers(y: Implicant): Boolean = ((bp.value ^ y.bp.value) & bp.mask | ~y.bp.mask & bp.mask) == 0
-
-    /** Search for implicit don't cares of `term`. The new implicant must NOT intersect with any of the implicants from `maxterm`.
-      *
-      * @param maxterms The forbidden list of searching
-      * @param above    Are we searching for implicants with one more `1` in value than `this`? (or search for implicants with one less `1`)
-      * @return The implicants that we found or `null`
-      *         @todo inline this
-      */
-    def getImplicitDC(maxterms: Seq[Implicant], above: Boolean): Option[Implicant] = {
-      // foreach input outputs in implicant `term`
-      for (i <- 0 until width) {
-        var t: Option[Implicant] = None
-        if (above && (bp.mask.testBit(i) && !bp.value.testBit(i))) // this bit is `0`
-          t = Some(new BitPat(bp.value.setBit(i), bp.mask, width)) // generate a new implicant with i-th position being `1` and others the same as `this`
-        else if (!above && (bp.mask.testBit(i) && bp.value.testBit(i))) // this bit is `1`
-          t = Some(new BitPat(bp.value.clearBit(i), bp.mask, width)) // generate a new implicant with i-th position being `0` and others the same as `this`
-        if (t.isDefined && !maxterms.exists(_.intersects(t.get))) // make sure we are not using one implicant from the forbidden list
-          return t
-      }
-      None
-    }
 
     override def toString = (if (!isPrime) "Non" else "") + "Prime" + bp.toString.replace("BitPat", "Implicant")
   }
@@ -260,13 +237,6 @@ class QMCMinimizer extends Minimizer {
           (mint, true)
       }
 
-      // todo benchmark this
-      if (!defaultToDc && dc.isEmpty) {
-        // As an elaboration performance optimization, don't be too clever if
-        // there are no don't-cares; synthesis can figure it out.
-        return implicants.map(a => (a.bp, outputBp))
-      }
-
       implicants.foreach(_.isPrime = true)
       val cols = (0 to n).reverse.map(b => implicants.filter(b == _.bp.mask.bitCount))
       val mergeTable = cols.map(
@@ -275,8 +245,6 @@ class QMCMinimizer extends Minimizer {
         )
       )
 
-      // todo: to val
-      var primeImplicants = List[Implicant]()
       for (i <- 0 to n) {
         for (j <- 0 until n - i) {
           mergeTable(i)(j).foreach(a => mergeTable(i + 1)(j) ++= mergeTable(i)(j + 1).filter(_ similar a).map(_ merge a))
@@ -284,23 +252,24 @@ class QMCMinimizer extends Minimizer {
         if (defaultToDc) {
           for (j <- 0 until n - i) {
             for (a <- mergeTable(i)(j).filter(_.isPrime)) {
-              val dc = a.getImplicitDC(maxt, above = true)
-              if (dc.isDefined)
-                mergeTable(i + 1)(j) += dc.get merge a
+              if (a.bp.mask.testBit(i) && !a.bp.value.testBit(i)) {
+                // this bit is `0`
+                val t = new BitPat(a.bp.value.setBit(i), a.bp.mask, a.width)
+                if (!maxt.exists(_.intersects(t))) mergeTable(i + 1)(j) += t merge a
+              }
             }
             for (a <- mergeTable(i)(j + 1).filter(_.isPrime)) {
-              val dc = a.getImplicitDC(maxt, above = false)
-              if (dc.isDefined)
-                mergeTable(i + 1)(j) += a merge dc.get
+              if (a.bp.mask.testBit(i) && a.bp.value.testBit(i)) {
+                // this bit is `1`
+                val t = new BitPat(a.bp.value.clearBit(i), a.bp.mask, a.width)
+                if (!maxt.exists(_.intersects(t))) mergeTable(i + 1)(j) += a merge t
+              }
             }
           }
         }
-        for (r <- mergeTable(i))
-          for (p <- r; if p.isPrime)
-            primeImplicants = p :: primeImplicants
       }
 
-      primeImplicants = primeImplicants.sortWith(_ < _)
+      val primeImplicants = mergeTable.flatten.flatten.filter(_.isPrime).sortWith(_ < _)
 
       val (essentialPrimeImplicants, nonessentialPrimeImplicants, uncoveredImplicants) =
         getEssentialPrimeImplicants(primeImplicants, implicants)
