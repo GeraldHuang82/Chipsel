@@ -120,6 +120,18 @@ case class MemTypeBinding[T <: Data](parent: MemBase[T]) extends Binding {
 // It is a source (RHS). It may only be connected/applied to sinks.
 case class DontCareBinding() extends UnconstrainedBinding
 
+private[chisel3] object ViewBinding {
+  sealed trait ViewTarget
+  case class Direct(target: Data) extends ViewTarget
+  case class Subfield(target: Data, high: BigInt, low: BigInt) extends ViewTarget
+  case class Concat(targets: Seq[ViewTarget]) extends ViewTarget
+}
+import ViewBinding.ViewTarget
+// TODO Should this be constrained? Constraints can be checked when doing the lookup from the target
+private[chisel3] case class ViewBinding(target: ViewTarget) extends UnconstrainedBinding
+private[chisel3] case class AggregateViewBinding(childMap: Map[Data, ViewTarget]) extends UnconstrainedBinding
+
+
 sealed trait LitBinding extends UnconstrainedBinding with ReadOnlyBinding
 // Literal binding attached to a element that is not part of a Bundle.
 case class ElementLitBinding(litArg: LitArg) extends LitBinding

@@ -5,7 +5,9 @@ package chisel3.internal
 import chisel3._
 import chisel3.experimental.{Analog, BaseModule, EnumType, FixedPoint, Interval, UnsafeEnum}
 import chisel3.internal.Builder.pushCommand
+import chisel3.internal.ViewBinding._
 import chisel3.internal.firrtl.{Connect, DefInvalid}
+
 import scala.language.experimental.macros
 import chisel3.internal.sourceinfo.SourceInfo
 
@@ -184,9 +186,32 @@ private[chisel3] object MonoConnect {
     }
   }
 
+  // TODO this should be a common utility somewhere
+  private def unfoldViewTarget(target: ViewTarget): Seq[Element] = target match {
+    case Direct(target) => Seq(target.asInstanceOf[Element]) // FIXME lolcast
+    case _ => ???
+    //case class Subfield(target: Data, high: BigInt, low: BigInt) extends ViewTarget
+    //case class Concat(targets: Seq[ViewTarget]) extends ViewTarget
+  }
+
+  // TODO This should be a common utility somewhere
+  private def unfoldView(elt: Element): Seq[Element] = elt.topBinding match {
+    case ViewBinding(target) => unfoldViewTarget(target)
+    case AggregateViewBinding(map) => unfoldViewTarget(map(elt))
+    case _ => Seq(elt)
+  }
+
+  def elemConnect(sourceInfo: SourceInfo, connectCompileOptions: CompileOptions, sink: Element, source: Element, context_mod: RawModule): Unit = {
+    val sources = unfoldView(source)
+    val sinks = unfoldView(sink)
+    for ((lhs, rhs) <- sinks.zip(sources)) {
+      elemConnectImpl(sourceInfo, connectCompileOptions, lhs, rhs, context_mod)
+    }
+  }
+
   // This function checks if element-level connection operation allowed.
   // Then it either issues it or throws the appropriate exception.
-  def elemConnect(implicit sourceInfo: SourceInfo, connectCompileOptions: CompileOptions, sink: Element, source: Element, context_mod: RawModule): Unit = {
+  private def elemConnectImpl(implicit sourceInfo: SourceInfo, connectCompileOptions: CompileOptions, sink: Element, source: Element, context_mod: RawModule): Unit = {
     import BindingDirection.{Internal, Input, Output} // Using extensively so import these
     // If source has no location, assume in context module
     // This can occur if is a literal, unbound will error previously
