@@ -234,6 +234,25 @@ private[chisel3] object cloneSupertype {
   }
 }
 
+// Returns pairs of all fields, element-level and containers, in a Record and their path names
+private[chisel3] object getRecursiveFields {
+  def apply(data: Data, path: String): Seq[(Data, String)] = data match {
+    case data: Record =>
+      data.elements.map { case (fieldName, fieldData) =>
+        getRecursiveFields(fieldData, s"$path.$fieldName")
+      }.fold(Seq(data -> path)) {
+        _ ++ _
+      }
+    case data: Vec[_] =>
+      data.getElements.zipWithIndex.map { case (fieldData, fieldIndex) =>
+        getRecursiveFields(fieldData, path = s"$path($fieldIndex)")
+      }.fold(Seq(data -> path)) {
+        _ ++ _
+      }
+    case data: Element => Seq(data -> path) // we don't support or recurse into other Aggregate types here
+  }
+}
+
 /** Returns the chisel type of a hardware object, allowing other hardware to be constructed from it.
   */
 object chiselTypeOf {
