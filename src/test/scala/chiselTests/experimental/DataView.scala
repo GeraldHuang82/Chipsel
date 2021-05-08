@@ -58,4 +58,20 @@ class DataViewSpec extends ChiselFlatSpec {
     chirrtl should include("bar <= in")
   }
 
+  it should "handle viewing Bundles as their same concrete type" in {
+    class MyBundle extends Bundle {
+      val foo = UInt(8.W)
+    }
+    class MyModule extends Module {
+      val in = IO(Input(new MyBundle))
+      val fizz = IO(Output(new MyBundle))
+      val buzz = IO(Output(new MyBundle))
+      fizz := in.viewAs(new MyBundle)
+      buzz.viewAs(new MyBundle) := in
+    }
+    val chirrtl = ChiselStage.emitChirrtl(new MyModule)
+    chirrtl should include("fizz.foo <= in.foo")
+    chirrtl should include("buzz.foo <= in.foo")
+  }
+
 }

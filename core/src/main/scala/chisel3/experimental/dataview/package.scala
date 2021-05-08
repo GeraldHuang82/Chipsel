@@ -13,19 +13,30 @@ package object dataview {
   // TODO should this be moved to class Aggregate / can it be unified with Aggregate.bind?
   private def bindAgg[A <: Data, B <: Aggregate](a: A, b: B, mapping: Iterable[(Data, Data)]): Unit = {
     println(s"Mapping = ${mapping.map { case (x, y) => (x -> x._id) -> (y -> y._id) }}")
-    //val viewFields = getRecursiveFields(result, "(bundle root)").toMap
 
-    // We rely on hashCode and equality based on identity here, consider IdentityHashMap if that changes
-    val childBindings = mutable.HashMap(b.getElements.map(_ -> new mutable.ListBuffer[ViewTarget]):_*)
-      //[Data, mutable.ListBuffer[ViewTarget]]()
-    //b.getElements.foreach(childBindings.put(_, new mutable.ListBuffer)) // Java is dumb
+    // Lookups to check the mapping results
+    val viewFieldLookup = getRecursiveFields(b, "(aggregate root)").toMap
+    val targetFieldLookup = getRecursiveFields(a, "(target root)").toMap
+
+    // Resulting bindings for each Element
+    val childBindings =
+      new mutable.HashMap[Data, mutable.ListBuffer[ViewTarget]] ++
+        viewFieldLookup.view
+          //.collect { case (elt: Element, _) => elt }
+          .collect { case (d: Data, _) => d }
+          .map(_ -> new mutable.ListBuffer[ViewTarget])
+
     for ((ax, bx) <- mapping) {
       println(s"Looking up ${bx -> bx._id}")
-      // TODO handle ax and bx not being fields of a or b
+      def err(arg: Data) =
+        throw new Exception(s"View mapping must only contain Elements within the two types, got $arg")
+      viewFieldLookup.getOrElse(bx, err(bx))
+      targetFieldLookup.getOrElse(ax, err(ax))
+
       childBindings(bx) += Direct(ax)
     }
 
-    val resultBindings = childBindings.view.map { case (data, targets) =>
+    val resultBindings = childBindings.map { case (data, targets) =>
       val targetsx = targets match {
         case collection.Seq(target: Direct) => target
         case x =>

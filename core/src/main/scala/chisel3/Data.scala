@@ -249,7 +249,21 @@ private[chisel3] object getRecursiveFields {
       }.fold(Seq(data -> path)) {
         _ ++ _
       }
-    case data: Element => Seq(data -> path) // we don't support or recurse into other Aggregate types here
+    case data: Element => Seq(data -> path)
+  }
+
+  def lazily(data: Data, path: String): LazyList[(Data, String)] = data match {
+    case data: Record =>
+      LazyList(data -> path) #:::
+        data.elements.to(LazyList).flatMap { case (fieldName, fieldData) =>
+          getRecursiveFields(fieldData, s"$path.$fieldName")
+        }
+    case data: Vec[_] =>
+      LazyList(data -> path) #:::
+        data.getElements.to(LazyList).zipWithIndex.flatMap { case (fieldData, fieldIndex) =>
+          getRecursiveFields(fieldData, path = s"$path($fieldIndex)")
+        }
+    case data: Element => LazyList(data -> path)
   }
 }
 
