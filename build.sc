@@ -107,7 +107,8 @@ class chisel3CrossModule(val crossScalaVersion: String) extends CommonModule wit
     override def ivyDeps = m.ivyDeps() ++ Agg(
       ivy"org.scalatest::scalatest:3.1.2",
       ivy"org.scalatestplus::scalacheck-1-14:3.1.1.1",
-      ivy"com.github.scopt::scopt:4.0.1"
+      ivy"com.github.scopt::scopt:4.0.1",
+      ivy"com.lihaoyi::os-lib:0.7.6"
     ) ++ m.treadleIvyDeps
 
     override def moduleDeps = super.moduleDeps ++ treadleModule

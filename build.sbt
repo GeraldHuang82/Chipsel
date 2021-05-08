@@ -72,7 +72,8 @@ lazy val chiselSettings = Seq (
   libraryDependencies ++= Seq(
     "org.scalatest" %% "scalatest" % "3.1.2" % "test",
     "org.scalatestplus" %% "scalacheck-1-14" % "3.1.1.1" % "test",
-    "com.github.scopt" %% "scopt" % "4.0.1"
+    "com.github.scopt" %% "scopt" % "4.0.1",
+    "com.lihaoyi" %% "os-lib" % "0.7.6"
   ),
 ) ++ (
   // Tests from other projects may still run concurrently
