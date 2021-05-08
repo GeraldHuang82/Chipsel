@@ -29,7 +29,7 @@ object pla {
     *            ))
     *          }}}
     */
-  def apply(table: Seq[(BitPat, BitPat)], invert: UInt): (UInt, UInt) = {
+  def apply(table: Seq[(BitPat, BitPat)], invert: UInt = 0.U): (UInt, UInt) = {
     require(table.nonEmpty, "pla table must not be empty")
 
     val (inputTerms, outputTerms) = table.unzip
@@ -98,8 +98,8 @@ object pla {
           .reverse
       )
 
-    /** construct the OR plane. which should will be used by a decoder. */
-    val invPlaneOutputs = ???
+    /** construct the NOT plane. which should will be used by a decoder. */
+    val invPlaneOutputs = orPlaneOutputs ^ invert
 
     outputs := invPlaneOutputs
 
