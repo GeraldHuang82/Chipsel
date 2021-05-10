@@ -267,6 +267,29 @@ private[chisel3] object getRecursiveFields {
   }
 }
 
+// Returns pairs of corresponding fields between two Records of the same type
+// TODO it seems wrong that Elements are checked for typeEquivalence in Bundle and Vec lit creation
+private[chisel3] object getMatchedFields {
+  def apply(x: Data, y: Data): Seq[(Data, Data)] = (x, y) match {
+    case (x: Element, y: Element) =>
+      require(x typeEquivalent y)
+      Seq(x -> y)
+    case (x: Record, y: Record) =>
+      (x.elements zip y.elements).map { case ((xName, xElt), (yName, yElt)) =>
+        require(xName == yName) // assume fields returned in same, deterministic order
+        getMatchedFields(xElt, yElt)
+      }.fold(Seq(x -> y)) {
+        _ ++ _
+      }
+    case (x: Vec[_], y: Vec[_]) =>
+      (x.getElements zip y.getElements).map { case (xElt, yElt) =>
+        getMatchedFields(xElt, yElt)
+      }.fold(Seq(x -> y)) {
+        _ ++ _
+      }
+  }
+}
+
 /** Returns the chisel type of a hardware object, allowing other hardware to be constructed from it.
   */
 object chiselTypeOf {

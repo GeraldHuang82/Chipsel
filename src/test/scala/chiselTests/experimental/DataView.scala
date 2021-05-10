@@ -6,8 +6,6 @@ import chiselTests.ChiselFlatSpec
 import chisel3._
 import chisel3.experimental.dataview._
 import chisel3.stage.ChiselStage
-import chisel3.testers.BasicTester
-import chisel3.util.Counter
 
 object SimpleBundleDataView {
   class BundleA extends Bundle {

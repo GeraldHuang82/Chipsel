@@ -12,8 +12,6 @@ import scala.collection.mutable
 package object dataview {
   // TODO should this be moved to class Aggregate / can it be unified with Aggregate.bind?
   private def bindAgg[A <: Data, B <: Aggregate](a: A, b: B, mapping: Iterable[(Data, Data)]): Unit = {
-    println(s"Mapping = ${mapping.map { case (x, y) => (x -> x._id) -> (y -> y._id) }}")
-
     // Lookups to check the mapping results
     val viewFieldLookup = getRecursiveFields(b, "(aggregate root)").toMap
     val targetFieldLookup = getRecursiveFields(a, "(target root)").toMap
@@ -22,18 +20,34 @@ package object dataview {
     val childBindings =
       new mutable.HashMap[Data, mutable.ListBuffer[ViewTarget]] ++
         viewFieldLookup.view
-          //.collect { case (elt: Element, _) => elt }
-          .collect { case (d: Data, _) => d }
+          .collect { case (elt: Element, _) => elt }
           .map(_ -> new mutable.ListBuffer[ViewTarget])
 
     for ((ax, bx) <- mapping) {
-      println(s"Looking up ${bx -> bx._id}")
       def err(arg: Data) =
         throw new Exception(s"View mapping must only contain Elements within the two types, got $arg")
-      viewFieldLookup.getOrElse(bx, err(bx))
+      val fieldName = viewFieldLookup.getOrElse(bx, err(bx))
       targetFieldLookup.getOrElse(ax, err(ax))
 
-      childBindings(bx) += Direct(ax)
+      bx match {
+        // Special cased because getMatchedFields checks typeEquivalence on Elements (and is used in Aggregate path)
+        // Also saves object allocations on common case of Elements
+        case elt: Element =>
+          if (elt.getClass != ax.getClass) {  // TODO typeEquivalent is too strict because it checks width
+            throw new Exception(s"Field $fieldName $elt specified as view of non-type-equivalent value $ax")
+          }
+          childBindings(bx) += Direct(ax)
+
+        case agg: Aggregate =>
+          if (!agg.typeEquivalent(ax)) {
+            throw new Exception(s"field $fieldName $agg specified with non-type-equivalent value $ax")
+          }
+          getMatchedFields(agg, ax).foreach {
+            case (belt: Element, aelt: Element) =>
+              childBindings(belt) += Direct(aelt)
+            case _ => // Ignore matching of Aggregates
+          }
+      }
     }
 
     val resultBindings = childBindings.map { case (data, targets) =>
