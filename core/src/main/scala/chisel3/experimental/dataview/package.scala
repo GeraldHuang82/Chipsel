@@ -78,7 +78,6 @@ package object dataview {
       val mapping = view.mapping.map(f => f(a, result))
       result match {
         case agg: Aggregate =>
-          println(s"agg.getElements = ${agg.getElements.map(x => x -> x._id)}")
           bindAgg(a, agg, mapping)
         case elt: Element =>
           bindElt(a, elt, mapping)

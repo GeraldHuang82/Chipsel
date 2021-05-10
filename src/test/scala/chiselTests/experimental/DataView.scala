@@ -17,6 +17,14 @@ object SimpleBundleDataView {
   implicit val view = DataView[BundleA, BundleB](_.foo -> _.bar)
 }
 
+object VecBundleDataView {
+  class MyBundle extends Bundle {
+    val foo = UInt(8.W)
+    val bar = UInt(8.W)
+  }
+  implicit val view = DataView[MyBundle, Vec[UInt]](_.foo -> _(1), _.bar -> _(0))
+}
+
 class DataViewSpec extends ChiselFlatSpec {
 
   behavior of "DataView"
@@ -70,6 +78,35 @@ class DataViewSpec extends ChiselFlatSpec {
     val chirrtl = ChiselStage.emitChirrtl(new MyModule)
     chirrtl should include("fizz.foo <= in.foo")
     chirrtl should include("buzz.foo <= in.foo")
+  }
+
+  it should "handle viewing Vecs as their same concrete type" in {
+    class MyModule extends Module {
+      val in = IO(Input(Vec(1, UInt(8.W))))
+      val fizz = IO(Output(Vec(1, UInt(8.W))))
+      val buzz = IO(Output(Vec(1, UInt(8.W))))
+      fizz := in.viewAs(Vec(1, UInt(8.W)))
+      buzz.viewAs(Vec(1, UInt(8.W))) := in
+    }
+    val chirrtl = ChiselStage.emitChirrtl(new MyModule)
+    chirrtl should include("fizz[0] <= in[0]")
+    chirrtl should include("buzz[0] <= in[0]")
+  }
+
+  it should "handle viewing Vecs as Bundles and vice versa" in {
+    import VecBundleDataView._
+    class MyModule extends Module {
+      val in = IO(Input(new MyBundle))
+      val out = IO(Output(Vec(2, UInt(8.W))))
+      val out2 = IO(Output(Vec(2, UInt(8.W))))
+      out := in.viewAs(Vec(2, UInt(8.W)))
+      out2.viewAs(new MyBundle) := in
+    }
+    val chirrtl = ChiselStage.emitChirrtl(new MyModule)
+    chirrtl should include("out[0] <= in.bar")
+    chirrtl should include("out[1] <= in.foo")
+    chirrtl should include("out2[0] <= in.bar")
+    chirrtl should include("out2[1] <= in.foo")
   }
 
 }
