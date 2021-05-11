@@ -6,6 +6,7 @@ import chiselTests.ChiselFlatSpec
 import chisel3._
 import chisel3.experimental.dataview._
 import chisel3.stage.ChiselStage
+import chisel3.util.{Decoupled, DecoupledIO}
 
 object SimpleBundleDataView {
   class BundleA extends Bundle {
@@ -107,6 +108,41 @@ class DataViewSpec extends ChiselFlatSpec {
     chirrtl should include("out[1] <= in.foo")
     chirrtl should include("out2[0] <= in.bar")
     chirrtl should include("out2[1] <= in.foo")
+  }
+
+  it should "work with bidirectional connections for nested types" in {
+    class FizzBuzz extends Bundle {
+      val fizz = UInt(8.W)
+      val buzz = UInt(8.W)
+    }
+    class FlatDecoupled extends Bundle {
+      val valid = Output(Bool())
+      val ready = Input(Bool())
+      val fizz = Output(UInt(8.W))
+      val buzz = Output(UInt(8.W))
+    }
+    implicit val view = DataView[FlatDecoupled, DecoupledIO[FizzBuzz]](
+      _.valid -> _.valid,
+      _.ready -> _.ready,
+      _.fizz -> _.bits.fizz,
+      _.buzz -> _.bits.buzz
+    )
+    class MyModule extends Module {
+      val enq = IO(Flipped(Decoupled(new FizzBuzz)))
+      val deq = IO(new FlatDecoupled)
+      val deq2 = IO(new FlatDecoupled)
+      deq <> enq.viewAs(new FlatDecoupled)
+      deq2.viewAs(Decoupled(new FizzBuzz)) <> enq
+    }
+    val chirrtl = ChiselStage.emitChirrtl(new MyModule)
+    chirrtl should include("deq.valid <= enq.valid")
+    chirrtl should include("enq.ready <= deq.ready")
+    chirrtl should include("deq.fizz <= enq.bits.fizz")
+    chirrtl should include("deq.buzz <= enq.bits.buzz")
+    chirrtl should include("deq2.valid <= enq.valid")
+    chirrtl should include("enq.ready <= deq2.ready")
+    chirrtl should include("deq2.fizz <= enq.bits.fizz")
+    chirrtl should include("deq2.buzz <= enq.bits.buzz")
   }
 
 }
